@@ -8,6 +8,7 @@ using Spice
 
 export crop,
        clean,
+       clean_h5,
        findPeaks,
        getGainFactor,
        getPixelGain,
@@ -16,8 +17,8 @@ export crop,
        get_outliers,
        load_h5_data,
        load_h5_data!,
-       load_single_spec,
-       load_time_series,
+       load_pds,
+       model,
        parseDataFileBothRows,
        parseDataFile,
        pds2h5,
@@ -28,6 +29,9 @@ export crop,
        show_me,
        show_time_series,
        show_single_spec,
+       single_spec,
+       time_series,
+       time_series_autospec,
        update!,
        findSimilar,
        doCO2Correction
@@ -63,14 +67,21 @@ end
 ###############################################################################
 # functions to load data
 ###############################################################################
-function load_time_series(fileName)
+function time_series(fileName)
   label = basename(fileName)
   df = readtable(fileName)
   df[:date] = DateTime[DateTime(tStr) for tStr in df[:date]];
   return df;
 end
 
-function load_single_spec(fileName; dataOnly=false)
+function time_series_autospec(fileName)
+  label = basename(fileName)
+  df = readtable(fileName, separator='\t')
+  df[:date] = DateTime[DateTime(tStr, "yyyy-mm-dd HH:MM:SS") for tStr in df[:Time]];
+  return df
+end
+
+function single_spec(fileName; dataOnly=false)
   y, gainStep, t, m0, p_pt = parseDataFileBothRows(fileName)
   row_A = vec(y[:,1])
   row_B = vec(y[:,2])
@@ -105,7 +116,7 @@ end
 ################################################################################
 # functions for plotting data
 ################################################################################
-function show_me(df::DataFrame, var=:peakArea; logy=false)
+function show_me(df::DataFrame, var=:peakArea; logy=true)
   figure()
   if logy
     semilogy(df[:date], df[var], "ok")
@@ -116,7 +127,7 @@ function show_me(df::DataFrame, var=:peakArea; logy=false)
   ylabel(string(var))
 end
 
-function show_me(dfs::Vector{DataFrame}, var=:peakArea; logy=false)
+function show_me(dfs::Vector{DataFrame}, var=:peakArea; logy=true)
   figure()
   for df in dfs
     if logy
@@ -129,7 +140,7 @@ function show_me(dfs::Vector{DataFrame}, var=:peakArea; logy=false)
   grid(true)
 end
 
-function show_me(s::Spectrum; logy=false)
+function show_me(s::Spectrum; logy=true)
   if logy
     figure()
     semilogy(s.baseline_A, "ok", markerfacecolor="white")
@@ -143,10 +154,21 @@ function show_me(s::Spectrum; logy=false)
     semilogy(s.ionsPerSpectrum_B, lw=2, label="ions per spectrum B")
     semilogy(s.peakIndices_A, s.peakAmplitudes_A, "or")
     semilogy(s.peakIndices_B, s.peakAmplitudes_B, "sr")
-
   else
-    plot(s.row_A, label="Row A")
-    plot(s.row_B, label="Row B")
+    figure()
+    plot(s.baseline_A, "ok", markerfacecolor="white")
+    plot(s.baseline_B, "or", markerfacecolor="white")
+    plot(s.row_A, "-k", lw=2, label="Row A")
+    plot(s.row_B, "-r", lw=2, label="Row B")
+    legend()
+
+    figure()
+    plot(s.ionsPerSpectrum_A, lw=2, label="ions per spectrum A")
+    plot(s.ionsPerSpectrum_B, lw=2, label="ions per spectrum B")
+    plot(s.peakIndices_A, s.peakAmplitudes_A, "or")
+    plot(s.peakIndices_B, s.peakAmplitudes_B, "sr")
+
+
   end
   grid(true)
   legend()
@@ -383,6 +405,31 @@ function get_ephemeris_spice(tt::Vector{DateTime})
 end
 
 
+function pds2h5(path)
+  homeDir = "/home/abieler/rosetta/data/dfms/h5/"
+  fileNames = readdir(path)
+
+  for fileName in sort(fileNames)
+    # remove the .TAB of fileName
+    bName = fileName[1:end-4]
+    yrStr, tStr, modeStr = matchall(r"(\d+)", bName)
+    if (modeStr[end] == '2') & (modeStr != "0572") & (modeStr[1:2] != "06")
+      h5Str = joinpath(homeDir, yrStr[1:6] * ".h5")
+      y, gainStep, t, m0, p_pt = parseDataFileBothRows(joinpath(path, fileName))
+      mstr = "m" * string(round(Int,m0))
+      dataSetName = mstr * "/" * bName
+      try
+        h5write(h5Str, joinpath(dataSetName, "gainStep"), gainStep)
+        h5write(h5Str, joinpath(dataSetName, "commandedMass"), m0)
+        h5write(h5Str, joinpath(dataSetName, "p_pt"), p_pt)
+        h5write(h5Str, joinpath(dataSetName, "y"), y)
+        h5write(h5Str, joinpath(dataSetName, "tStart"), string(t))
+      catch
+      end
+    end
+  end
+end
+
 
 function pds2h5(path)
   homeDir = "/home/abieler/rosetta/data/dfms/h5/"
@@ -392,7 +439,7 @@ function pds2h5(path)
     # remove the .TAB of fileName
     bName = fileName[1:end-4]
     yrStr, tStr, modeStr = matchall(r"(\d+)", bName)
-    if (modeStr[end] == '2') & (modeStr != "0572")
+    if (modeStr[end] == '2') & (modeStr != "0572") & (modeStr[1:2] != "06")
       h5Str = joinpath(homeDir, yrStr[1:6] * ".h5")
       y, gainStep, t, m0, p_pt = parseDataFileBothRows(joinpath(path, fileName))
       mstr = "m" * string(round(Int,m0))
@@ -517,6 +564,43 @@ function parseDataFile(fileName, row=2)
 
   close(iFile)
   return gainStep, t, y, m0, p_pt
+end
+
+function load_pds(fileName)
+  iFile = open(fileName, "r")
+  i = 1
+  y = zeros(Float64, 512, 2)
+  t = DateTime(2000)
+  gainStep = 0
+  m0 = 0
+  p_pt = 0.0
+  iSkip = 329
+  isStartTimeFound = false
+  while !eof(iFile)
+    line = readline(iFile)
+    if (contains(line, "START_TIME") & (isStartTimeFound == false))
+      tStr = matchall(r"\d+-\d+-\d+T\d+:\d+:\d+", line)[1]
+      t = DateTime(tStr)
+      isStartTimeFound = true
+    elseif contains(line, "ROSINA_DFMS_SCI_GAIN_OF_SPECTRUM")
+      gainStep = parse(Int, matchall(r"(\d+)", line)[1])
+    elseif contains(line , "ROSINA_DFMS_SCI_MASS")
+      m0 = parse(Int, matchall(r"(\d+)", line)[1])
+    elseif contains(line, "ROSINA_DFMS_SCI_P_PT_AT_PEAK")
+      p_pt = parse(Int, matchall(r"(\d+)", line)[1])
+    elseif contains(line, "SPICE_FILE_NAME")
+      iSkip = 341
+    end
+
+    if (i >= iSkip)
+      y[i-(iSkip-1), 1] = parse(Float64, matchall(r"(\d+)", line)[2])
+      y[i-(iSkip-1), 2] = parse(Float64, matchall(r"(\d+)", line)[3])
+    end
+    i += 1
+  end
+
+  close(iFile)
+  return y, gainStep, t, m0, p_pt
 end
 
 function load_h5_data(dataset, y, row)
@@ -690,18 +774,26 @@ function multiDoubleGauss(x, p)
 end
 
 function multiGauss(x, p)
+  # x = bins
+  # p = fitting parameters
+  # B = baseline height
+  w0 = 4.0
+  dw = 1.25
+
   nPeaks = round(Int, (length(p)-1) / 3)
-  B = p[end]
+  B = 1.0
+  #B = p[end]
   yFit = zeros(Float64, length(x))
   for i=1:nPeaks
     x0 = p[i]
     A = p[i+nPeaks]
     w = p[i+2*nPeaks]
-    yFit += A * exp(-(x-x0).^2 / w^2)
+    th = tanh((w-w0)/dw)
+    w_th = w0 + th * dw
+    yFit += A * exp(-(x-x0).^2 / w_th^2)
   end
   yFit += B
   return yFit
-
 end
 
 function model(x, p)
@@ -711,20 +803,67 @@ function model(x, p)
   end
   return f
 end
-#function peakFit(y,pI,pA,LHS, RHS, fitMethod="singleGauss")
-function peakFit(y,pI,pA,fitMethod="singleGauss")
+
+function peakFit(y, pI, pA, fitMethod)
   nPeaks = length(pI)
-  peakAreas = zeros(Float64, nPeaks)
-  peakIndices = zeros(Float64, nPeaks)
-  peakWidths = zeros(Float64, nPeaks)
+  peakArea = zeros(Float64, nPeaks)
+  peakIndex = Float64[value for value in pI]
+  peakWidth = zeros(Float64, nPeaks)
 
   if fitMethod == "sum"
-    area = sumPixels(y,pI)
-    for i=1:nPeaks
-       peakAreas[i] = area
-       peakIndices[i] = pI[i]
+    peakArea = sumPixels(y,[peakIndex])
+    return y, peakArea, pI[iPeak], 0.0
+
+  elseif fitMethod == "singleGauss"
+    # use single gauss to fit peak shape
+    fitParams = Float64[]
+    append!(fitParams, pI)
+    append!(fitParams, pA)
+    append!(fitParams, ones(Float64, length(pI)))
+    #push!(fitParams, median(y))
+
+    xmin = 100
+    xmax = 400
+    x = collect(1:512)
+
+    # compute weight factors w
+    weights = zeros(Float64, 512)
+    sigma = 12.0
+    if nPeaks == 1
+      sigma = 50.0
     end
-    return y, peakAreas, peakIndices, zeros(length(peakIndices))
+    for i=1:length(pI)
+      weights += exp(-0.5 * ((x - pI[i]) / sigma).^2) / pA[i]
+    end
+
+    fit = curve_fit(multiGauss, x[xmin:xmax], y[xmin:xmax], weights[xmin:xmax],
+                    fitParams)
+
+    for i=1:nPeaks
+      peakArea[i] = fit.param[i+nPeaks] * abs(fit.param[i+2*nPeaks]) * sqrt(pi)
+      peakIndex[i] = fit.param[i]
+      peakWidth[i] = fit.param[i+2*nPeaks]
+    end
+
+    w0 = 4.0
+    dw = 1.25
+    th = tanh((peakWidth-w0)/dw)
+    peakWidth = w0 + th * dw
+
+    return multiGauss(x, fit.param), peakArea, peakIndex, peakWidth
+  end
+end
+
+function peakFit(y, pI, pA, fitMethod, iPeak)
+  nPeaks = length(pI)
+  peakArea = 0.0
+  peakIndex = pI[iPeak]
+  peakWidth = 0.0
+
+  if fitMethod == "sum"
+    peakArea = sumPixels(y,[peakIndex])
+    return y, peakArea, pI[iPeak], 0.0
+
   elseif fitMethod == "singleGauss"
     # use single gauss to fit peak shape
     fitParams = Float64[]
@@ -735,32 +874,10 @@ function peakFit(y,pI,pA,fitMethod="singleGauss")
     x = collect(1:512)
     fit = curve_fit(multiGauss, x[20:500], y[20:500], fitParams)
     #fit = curve_fit(multiGauss, x[LHS:RHS], y[LHS:RHS], fitParams)
-    for i=1:nPeaks
-      peakAreas[i] = fit.param[i+nPeaks] * abs(fit.param[i+2*nPeaks]) * sqrt(pi)
-      peakIndices[i] = fit.param[i]
-      peakWidths[i] = fit.param[i+2*nPeaks]
-
-      #println("singleGaussArea: ", peakAreas[i])
-    end
-    return multiGauss(x, fit.param), peakAreas, peakIndices, peakWidths
-
-  elseif fitMethod == "doubleGauss"
-    # use two gauss to fit peak shape
-    fitParams = Float64[]
-    append!(fitParams, pI)
-    append!(fitParams, pA)
-    append!(fitParams, ones(Float64, length(pI)))
-    append!(fitParams, pA/20)
-    append!(fitParams, ones(Float64, length(pI)))
-    push!(fitParams, median(y))
-    x = [1:512]
-    fit = curve_fit(multiDoubleGauss, x[20:500], y[20:500], fitParams)
-
-    for i=1:nPeaks
-      peakAreas[i] = (fit.param[i+nPeaks] * abs(fit.param[i+2*nPeaks]) * sqrt(pi)) + (abs(fit.param[i+3*nPeaks]) * abs(fit.param[i+4*nPeaks]) * sqrt(pi))
-      #println("doublGaussArea: ", peakAreas[i])
-    end
-    return multiDoubleGauss(x, fit.param), peakAreas
+    peakArea = fit.param[iPeak+nPeaks] * abs(fit.param[iPeak+2*nPeaks]) * sqrt(pi)
+    peakIndex = fit.param[iPeak]
+    peakWidth = fit.param[iPeak+2*nPeaks]
+    return multiGauss(x, fit.param), peakArea, peakIndex, peakWidth
   end
 end
 
@@ -783,17 +900,18 @@ function polyFit(y, model)
 end
 
 function sumPixels(y, pI)
-
- if length(pI) > 1
-   lhs = minimum(pI)-20
-   rhs = maximum(pI)+20
- else
-   lhs = pI[1] - 20
-   rhs = pI[1] + 20
- end
-  #lhs = 238
-  #rhs = 285
-  totalArea = sum(y[lhs:rhs])
+  lhs = 238
+  rhs = 285
+  if length(pI) > 1
+    lhs = minimum(pI)-20
+    rhs = maximum(pI)+20
+  elseif length(pI) == 1
+    lhs = pI[1] - 20
+    rhs = pI[1] + 20
+  else
+    return 0.0
+  end
+   totalArea = sum(y[lhs:rhs])
 end
 
 function findPeaks(y, NN=3, yMin=0.01, pkLHS=180, pkRHS=380)
@@ -894,4 +1012,23 @@ function doCO2Correction(tCO, nCO, tCO2, nCO2)
   end
   return tCOCorrected, nCOCorrected, wasCorrected
 end
+
+function clean_h5(path)
+  fileNames = readdir(path)
+  for fname in fileNames
+    fid = h5open(joinpath(path, fname),"r+")
+    for grp in fid
+      for dataset in grp
+        if ismatch(r"M06.2", name(dataset))
+          println(name(dataset))
+          o_delete(grp, name(dataset))
+        end
+      end
+    end
+    close(fid)
+  end
+end
+
+
+
 end
