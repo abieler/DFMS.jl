@@ -18,7 +18,7 @@ export crop,
        load_h5_data,
        load_h5_data!,
        load_pds,
-       model,
+       baseline_model,
        parseDataFileBothRows,
        parseDataFile,
        pds2h5,
@@ -89,8 +89,8 @@ function single_spec(fileName; dataOnly=false)
   gainFactor_B = getGainFactor(gainStep, _rowB)
   pixelGain_A = getPixelGain(t, _rowA, gainStep)
   pixelGain_B = getPixelGain(t, _rowB, gainStep)
-  baseline_A = polyFit(row_A, model)
-  baseline_B = polyFit(row_B, model)
+  baseline_A = polyFit(row_A, baseline_model)
+  baseline_B = polyFit(row_B, baseline_model)
 
   ionsPerSpectrum_A = (row_A .- baseline_A) ./ pixelGain_A / gainFactor_A * C
   ionsPerSpectrum_B = (row_B .- baseline_B) ./ pixelGain_B / gainFactor_A * C
@@ -469,7 +469,8 @@ function getGainFactor(gainStep,row)
   end
 
   #iFile = open(joinpath("/home/abieler/.julia/v0.4/DFMS/InstrumentData/", fileName), "r")
-  iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
+  #iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
+  iFile = open(joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData", fileName), "r")
   i=0
   while !eof(iFile)
     line = readline(iFile)
@@ -494,7 +495,8 @@ function getGainFactor(gainStep)
       fileName = "gainFactor_SPACE_B.txt"
     end
 
-    iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
+    iFile = open(joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData", fileName), "r")
+    #iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
     i=0
     while !eof(iFile)
       line = readline(iFile)
@@ -682,7 +684,8 @@ function getPixelGain(t, row, gainStep)
   fileName = ""
   i = 0
   #path = "/home/abieler/.julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE"
-  path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
+  #path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
+  path = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE")
   # pixel gains for july to 1 october
   if DateTime(2014,2,1) < t < DateTime(2014,10,1)
     fileName = joinpath(path, "pg_space_Aug2014.csv")
@@ -721,7 +724,8 @@ end
 function getPixelGain(t, gainStep)
   fileName = ""
   i = 0
-  path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
+  path = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE")
+  #path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
   pixelGain = zeros(Float64, 512, 2)
   for row in [_rowA, _rowB]
     # pixel gains for july to 1 october
@@ -759,7 +763,7 @@ function getPixelGain(t, gainStep)
   return pixelGain
 end
 
-function multiDoubleGauss(x, p)
+function doubleGauss(x, p)
   nPeaks = round(Int, (length(p)-1) / 5)
   B = p[end]
   yFit = zeros(Float64, length(x))
@@ -775,7 +779,7 @@ function multiDoubleGauss(x, p)
   return yFit
 end
 
-function multiGauss(x, p)
+function singleGauss(x, p)
   # x = bins
   # p = fitting parameters
   # B = baseline height
@@ -798,7 +802,7 @@ function multiGauss(x, p)
   return yFit
 end
 
-function model(x, p)
+function baseline_model(x, p)
   f = zeros(Float64, length(x))
   for i=1:length(x)
     @inbounds f[i] = p[1] + p[2]*x[i] + p[3]*x[i]^2 + p[4]*x[i]^3
@@ -838,7 +842,7 @@ function peakFit(y, pI, pA, fitMethod)
       weights += exp(-0.5 * ((x - pI[i]) / sigma).^2) / pA[i]
     end
 
-    fit = curve_fit(multiGauss, x[xmin:xmax], y[xmin:xmax], weights[xmin:xmax],
+    fit = curve_fit(singleGauss, x[xmin:xmax], y[xmin:xmax], weights[xmin:xmax],
                     fitParams)
 
     for i=1:nPeaks
@@ -852,7 +856,7 @@ function peakFit(y, pI, pA, fitMethod)
     th = tanh((peakWidth-w0)/dw)
     peakWidth = w0 + th * dw
 
-    return multiGauss(x, fit.param), peakArea, peakIndex, peakWidth
+    return singleGauss(x, fit.param), peakArea, peakIndex, peakWidth
   end
 end
 
@@ -874,16 +878,16 @@ function peakFit(y, pI, pA, fitMethod, iPeak)
     append!(fitParams, ones(Float64, length(pI)))
     push!(fitParams, median(y))
     x = collect(1:512)
-    fit = curve_fit(multiGauss, x[20:500], y[20:500], fitParams)
-    #fit = curve_fit(multiGauss, x[LHS:RHS], y[LHS:RHS], fitParams)
+    fit = curve_fit(singleGauss, x[20:500], y[20:500], fitParams)
+    #fit = curve_fit(singleGauss, x[LHS:RHS], y[LHS:RHS], fitParams)
     peakArea = fit.param[iPeak+nPeaks] * abs(fit.param[iPeak+2*nPeaks]) * sqrt(pi)
     peakIndex = fit.param[iPeak]
     peakWidth = fit.param[iPeak+2*nPeaks]
-    return multiGauss(x, fit.param), peakArea, peakIndex, peakWidth
+    return singleGauss(x, fit.param), peakArea, peakIndex, peakWidth
   end
 end
 
-function polyFit(y, model)
+function polyFit(y, baseline_model)
   # select only subset of the 512 data bins for fitting
   # of baseline signal
   # --> center of the mass spectrum is ignored as it
@@ -896,9 +900,9 @@ function polyFit(y, model)
   append!(xBG, collect(bgRangeRight))
   append!(yBG, y[bgRangeRight])
 
-  fit = curve_fit(model, xBG, yBG, [median(y), 0., 0., 0.])
+  fit = curve_fit(baseline_model, xBG, yBG, [median(y), 0., 0., 0.])
 
-  return model(collect(fullRange), fit.param)
+  return baseline_model(collect(fullRange), fit.param)
 end
 
 function sumPixels(y, pI)
