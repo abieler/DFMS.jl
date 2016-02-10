@@ -468,7 +468,8 @@ function getGainFactor(gainStep,row)
     fileName = "gainFactor_SPACE_B.txt"
   end
 
-  iFile = open(joinpath("/home/abieler/.julia/v0.4/DFMS/InstrumentData/", fileName), "r")
+  #iFile = open(joinpath("/home/abieler/.julia/v0.4/DFMS/InstrumentData/", fileName), "r")
+  iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
   i=0
   while !eof(iFile)
     line = readline(iFile)
@@ -493,7 +494,7 @@ function getGainFactor(gainStep)
       fileName = "gainFactor_SPACE_B.txt"
     end
 
-    iFile = open(joinpath("/home/abieler/.julia/v0.4/DFMS/InstrumentData/", fileName), "r")
+    iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
     i=0
     while !eof(iFile)
       line = readline(iFile)
@@ -680,7 +681,8 @@ end
 function getPixelGain(t, row, gainStep)
   fileName = ""
   i = 0
-  path = "/home/abieler/.julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE"
+  #path = "/home/abieler/.julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE"
+  path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
   # pixel gains for july to 1 october
   if DateTime(2014,2,1) < t < DateTime(2014,10,1)
     fileName = joinpath(path, "pg_space_Aug2014.csv")
@@ -719,7 +721,7 @@ end
 function getPixelGain(t, gainStep)
   fileName = ""
   i = 0
-  path = "/home/abieler/.julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE"
+  path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
   pixelGain = zeros(Float64, 512, 2)
   for row in [_rowA, _rowB]
     # pixel gains for july to 1 october
