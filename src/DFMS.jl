@@ -10,6 +10,7 @@ export crop,
        clean,
        clean_h5,
        findPeaks,
+       get_dfms_data,
        getGainFactor,
        getPixelGain,
        get_eph,
@@ -17,7 +18,6 @@ export crop,
        get_outliers,
        load_h5_data,
        load_h5_data!,
-       load_pds,
        baseline_model,
        parseDataFileBothRows,
        parseDataFile,
@@ -430,32 +430,6 @@ function pds2h5(path)
   end
 end
 
-
-function pds2h5(path)
-  homeDir = "/home/abieler/rosetta/data/dfms/h5/"
-  fileNames = readdir(path)
-
-  for fileName in sort(fileNames)
-    # remove the .TAB of fileName
-    bName = fileName[1:end-4]
-    yrStr, tStr, modeStr = matchall(r"(\d+)", bName)
-    if (modeStr[end] == '2') & (modeStr != "0572") & (modeStr[1:2] != "06")
-      h5Str = joinpath(homeDir, yrStr[1:6] * ".h5")
-      y, gainStep, t, m0, p_pt = parseDataFileBothRows(joinpath(path, fileName))
-      mstr = "m" * string(round(Int,m0))
-      dataSetName = mstr * "/" * bName
-      try
-        h5write(h5Str, joinpath(dataSetName, "gainStep"), gainStep)
-        h5write(h5Str, joinpath(dataSetName, "commandedMass"), m0)
-        h5write(h5Str, joinpath(dataSetName, "p_pt"), p_pt)
-        h5write(h5Str, joinpath(dataSetName, "y"), y)
-        h5write(h5Str, joinpath(dataSetName, "tStart"), string(t))
-      catch
-      end
-    end
-  end
-end
-
 ################################################################################
 # helper functions for the automatic DFMS data analysis of HR spectra
 ################################################################################
@@ -468,8 +442,6 @@ function getGainFactor(gainStep,row)
     fileName = "gainFactor_SPACE_B.txt"
   end
 
-  #iFile = open(joinpath("/home/abieler/.julia/v0.4/DFMS/InstrumentData/", fileName), "r")
-  #iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
   iFile = open(joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData", fileName), "r")
   i=0
   while !eof(iFile)
@@ -511,27 +483,6 @@ function getGainFactor(gainStep)
   end
   return gainFactor
 end
-function parseVar(fileName, varName, iSkip=329)
-  iFile = open(fileName, "r")
-  t = DateTime(2000,1,1)
-  isStartTimeFound = false
-  while !eof(iFile)
-    line = readline(iFile)
-    if (contains(line, "START_TIME") & (isStartTimeFound == false))
-      tStr = matchall(r"\d+-\d+-\d+T\d+:\d+:\d+", line)[1]
-      t = DateTime(tStr)
-      isStartTimeFound = true
-    elseif contains(line, varName)
-      value = parse(Float64, matchall(r"(-?\d.\d+[eE][+-]\d+)", line)[1])
-    end
-
-    if (i >= iSkip)
-      break
-    end
-  end
-  close(iFile)
-  return t, value
-end
 
 function parseDataFile(fileName, row=2)
   iFile = open(fileName, "r")
@@ -567,6 +518,53 @@ function parseDataFile(fileName, row=2)
 
   close(iFile)
   return gainStep, t, y, m0, p_pt
+end
+
+function get_dfms_data(fileName)
+  fileType = fileName[end-2:end]
+  if fileType == "DAT"
+    return load_fm(fileName)
+  elseif fileType == "TAB"
+    return load_pds(fileName)
+  else
+    println("File type unknown:")
+    @show(fileType)
+  end
+end
+
+function load_fm(fileName)
+  i = 1
+  y = zeros(Float64, 512, 2)
+  t = DateTime(2000)
+  gainStep = 0
+  m0 = 0
+  p_pt = 0.0
+  iSkip = 130
+  isStartTimeFound = false
+  
+  iFile = open(fileName, "r")
+  while !eof(iFile)
+    line = readline(iFile)
+    if (contains(line, "Packet time") & (isStartTimeFound == false))
+      tStr = matchall(r"\d+/\d+/\d+ \d+:\d+:\d+", line)[1]
+      t = DateTime(tStr, "dd/mm/yyyy HH:MM:SS")
+      isStartTimeFound = true
+    elseif (contains(line, "Gain") & !contains(line, "(pre") & !contains(line, "@"))
+      gainStep = round(Int, parse(Float64, matchall(r"(\d+.\d+e\+\d+)", line)[1]))
+    elseif contains(line , "Mass     ")
+      m0 = round(Int, parse(Float64, matchall(r"(\d+.\d+e\+\d+)", line)[1]))
+    elseif contains(line, "p/p_T")
+      p_pt = round(Int, parse(Float64, matchall(r"(\d+.\d+e\+\d+)", line)[1]))
+    end
+
+    if (i >= iSkip)
+      y[i-(iSkip-1), 1] = parse(Float64, matchall(r"(\d+)", line)[2])
+      y[i-(iSkip-1), 2] = parse(Float64, matchall(r"(\d+)", line)[3])
+    end
+    i += 1
+  end
+  close(iFile)
+  return y, gainStep, t, m0, p_pt
 end
 
 function load_pds(fileName)
@@ -683,8 +681,6 @@ end
 function getPixelGain(t, row, gainStep)
   fileName = ""
   i = 0
-  #path = "/home/abieler/.julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE"
-  #path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
   path = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE")
   # pixel gains for july to 1 october
   if DateTime(2014,2,1) < t < DateTime(2014,10,1)
@@ -725,7 +721,6 @@ function getPixelGain(t, gainStep)
   fileName = ""
   i = 0
   path = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE")
-  #path = "C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData\\pixelgain_SPACE"
   pixelGain = zeros(Float64, 512, 2)
   for row in [_rowA, _rowB]
     # pixel gains for july to 1 october
@@ -787,7 +782,7 @@ function singleGauss(x, p)
   dw = 1.25
 
   nPeaks = round(Int, (length(p)-1) / 3)
-  B = 1.0
+  B = 0.1
   #B = p[end]
   yFit = zeros(Float64, length(x))
   for i=1:nPeaks
@@ -931,7 +926,7 @@ function findPeaks(y, NN=3, yMin=0.01, pkLHS=180, pkRHS=380)
       end
     end
     if (score == 2*NN+1)
-      push!(peakIndexes, i-1)
+      push!(peakIndexes, i)
       push!(peakAmpl, y[i])
     end
   end
