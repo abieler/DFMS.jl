@@ -12,7 +12,9 @@ export crop,
        findPeaks,
        get_dfms_data,
        getGainFactor,
+       get_gain_factor,
        getPixelGain,
+       get_pixel_gain,
        get_eph,
        get_ephemeris_spice,
        get_outliers,
@@ -455,6 +457,63 @@ function getGainFactor(gainStep,row)
   return gainFactor
 end
 
+
+function get_gain_factor(gainstep, isFMdata)
+  if isFMdata
+    gain_factor_fm(gainstep)
+  else
+    gain_factor_pds(gainstep)
+  end
+end
+
+function gain_factor_pds(gainstep)
+  fileName = ""
+  gainFactor = [0.0, 0.0]
+  counter = 1
+  gF = 0.0
+  for myrow in [_rowA, _rowB]
+    if (myrow == _rowA)
+      fileName = "gainFactor_SPACE_A.txt"
+    elseif (myrow == _rowB)
+      fileName = "gainFactor_SPACE_B.txt"
+    end
+
+    iFile = open(joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData", fileName), "r")
+    #iFile = open(joinpath("C:\\Users\\leroy\\.julia\\v0.4\\DFMS\\InstrumentData", fileName), "r")
+    i=0
+    while !eof(iFile)
+      line = readline(iFile)
+      if (i == gainstep)
+        gF = parse(Float64, matchall(r"(\d+.\d+[eE][+-]\d+)", line)[1])
+      end
+      i += 1
+    end
+    close(iFile)
+    gainFactor[counter] = gF
+    counter += 1
+  end
+  return gainFactor
+end
+
+function gain_factor_fm(gainstep)
+  gainFactor = [0.0, 0.0]
+  fileName = "gainFactor_FM.txt"
+  iFile = open(joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData", fileName), "r")
+  i=1
+  while !eof(iFile)
+    line = readline(iFile)
+    if i == gainstep
+      px, volt, gf_a, gf_b = split(line, '\t')
+      gf_a = parse(Float64, gf_a)
+      gf_b = parse(Float64, gf_b)
+      gainFactor[1] = gf_a
+      gainFactor[2] = gf_b
+    end
+    i+=1
+  end
+  return gainFactor
+end
+
 function getGainFactor(gainStep)
   fileName = ""
   gainFactor = [0.0, 0.0]
@@ -533,6 +592,7 @@ function get_dfms_data(fileName)
 end
 
 function load_fm(fileName)
+  isFMdata = true
   i = 1
   y = zeros(Float64, 512, 2)
   t = DateTime(2000)
@@ -541,7 +601,7 @@ function load_fm(fileName)
   p_pt = 0.0
   iSkip = 130
   isStartTimeFound = false
-  
+
   iFile = open(fileName, "r")
   while !eof(iFile)
     line = readline(iFile)
@@ -564,10 +624,11 @@ function load_fm(fileName)
     i += 1
   end
   close(iFile)
-  return y, gainStep, t, m0, p_pt
+  return y, gainStep, t, m0, p_pt, isFMdata
 end
 
 function load_pds(fileName)
+  isFMdata = false
   iFile = open(fileName, "r")
   i = 1
   y = zeros(Float64, 512, 2)
@@ -601,7 +662,7 @@ function load_pds(fileName)
   end
 
   close(iFile)
-  return y, gainStep, t, m0, p_pt
+  return y, gainStep, t, m0, p_pt, isFMdata
 end
 
 function load_h5_data(dataset, y, row)
@@ -678,44 +739,67 @@ function parseDataFileBothRows(fileName)
   return y, gainStep, t, m0, p_pt
 end
 
-function getPixelGain(t, row, gainStep)
-  fileName = ""
-  i = 0
-  path = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE")
-  # pixel gains for july to 1 october
-  if DateTime(2014,2,1) < t < DateTime(2014,10,1)
-    fileName = joinpath(path, "pg_space_Aug2014.csv")
-    i=2
-  # pixel gains from 1 october to 31 december
-  elseif DateTime(2014,10,1) <= t < DateTime(2015,1,1)
-    if gainStep < 12
-      fileName = joinpath(path, "pg_space_Nov2014_GS9_new.csv")
-    elseif 12 <= gainStep < 15
-      fileName = joinpath(path, "pg_space_Nov2014_GS14_new.csv")
-    elseif gainStep >= 15
-      fileName = joinpath(path, "pg_space_Nov2014_GS16_new.csv")
-    end
-    i=1
-  # pixel gains from 1 january to april
-  elseif DateTime(2015,1,1) <= t < DateTime(2016,4,1)
-    if gainStep < 12
-      fileName = joinpath(path, "pg_space_Feb2015_GS9_new.csv")
-    elseif 12 <= gainStep < 15
-      fileName = joinpath(path, "pg_space_Feb2015_GS14_new.csv")
-    elseif gainStep >= 15
-      fileName = joinpath(path, "pg_space_Feb2015_GS16_new.csv")
-    end
-    i=1
+function get_pixel_gain(t, gainstep, isFMdata)
+  if isFMdata
+    pixel_gain_fm(gainstep)
+  else
+    pixel_gain_pds(t, gainstep)
   end
-  iFile = open(fileName, "r")
-  pixelGain = ones(Float64, 512)
-  while !eof(iFile)
-    line = readline(iFile)
-    pixelGain[i] = parse(Float64, matchall(r"(\d+.\d+)", line)[row+2])
-    i += 1
+end
+
+function pixel_gain_fm(gainstep)
+  pixelGain = zeros(Float64, 512, 2)
+  fileName = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_FM/pixelgain_FM_2015_06.txt")
+  iCol = (gainstep - 1) * 6 + 5
+  data = readdlm(fileName, '\t', Float64)
+  for i=1:size(data,1)
+    pixelGain[i,1] = data[i,iCol]
+    pixelGain[i,2] = data[i,iCol+1]
   end
   return pixelGain
 end
+
+function pixel_gain_pds(t, gainstep)
+  fileName = ""
+  i = 0
+  path = joinpath(homedir(), ".julia/v0.4/DFMS/InstrumentData/pixelgain_SPACE")
+  pixelGain = zeros(Float64, 512, 2)
+  for row in [_rowA, _rowB]
+    # pixel gains for july to 1 october
+    if DateTime(2014,2,1) < t < DateTime(2014,10,1)
+      fileName = joinpath(path, "pg_space_Aug2014.csv")
+      i=2
+    # pixel gains from 1 october to 31 december
+    elseif DateTime(2014,10,1) <= t < DateTime(2015,1,1)
+      if gainstep < 12
+        fileName = joinpath(path, "pg_space_Nov2014_GS9_new.csv")
+      elseif 12 <= gainstep < 15
+        fileName = joinpath(path, "pg_space_Nov2014_GS14_new.csv")
+      elseif gainstep >= 15
+        fileName = joinpath(path, "pg_space_Nov2014_GS16_new.csv")
+      end
+      i=1
+    # pixel gains from 1 january to april
+    elseif DateTime(2015,1,1) <= t < DateTime(2016,4,1)
+      if gainstep < 12
+        fileName = joinpath(path, "pg_space_Feb2015_GS9_new.csv")
+      elseif 12 <= gainstep < 15
+        fileName = joinpath(path, "pg_space_Feb2015_GS14_new.csv")
+      elseif gainstep >= 15
+        fileName = joinpath(path, "pg_space_Feb2015_GS16_new.csv")
+      end
+      i=1
+    end
+    iFile = open(fileName, "r")
+    while !eof(iFile)
+      line = readline(iFile)
+      pixelGain[i, row] = parse(Float64, matchall(r"(\d+.\d+)", line)[row+2])
+      i += 1
+    end
+  end
+  return pixelGain
+end
+
 
 function getPixelGain(t, gainStep)
   fileName = ""
@@ -759,8 +843,9 @@ function getPixelGain(t, gainStep)
 end
 
 function doubleGauss(x, p)
-  nPeaks = round(Int, (length(p)-1) / 5)
-  B = p[end]
+  nPeaks = round(Int, length(p) / 5)
+  B = 0.1
+
   yFit = zeros(Float64, length(x))
   for i=1:nPeaks
     x0 = p[i]
@@ -781,9 +866,12 @@ function singleGauss(x, p)
   #w0 = 4.0
   #dw = 1.25
 
-  nPeaks = round(Int, (length(p)-1) / 3)
+  nPeaks = round(Int, (length(p)-1) / 2)
   B = 0.1
-  #B = p[end]
+  w = p[end]
+  th = tanh((w-w0)/dw)
+  w_th = w0 + th * dw
+
   yFit = zeros(Float64, length(x))
   for i=1:nPeaks
     A = p[i+nPeaks]
@@ -794,9 +882,9 @@ function singleGauss(x, p)
     th_x = tanh((x0-pI_0[i])/dx)
     x0_th = pI_0[i] + th_x * dx
 
-    w = p[i+2*nPeaks]
-    th = tanh((w-w0)/dw)
-    w_th = w0 + th * dw
+    #w = p[i+2*nPeaks]
+    #th = tanh((w-w0)/dw)
+    #w_th = w0 + th * dw
     ##########################################
 
     yFit += A * exp(-(x-x0_th).^2 / w_th^2)
@@ -840,7 +928,8 @@ function peakFit(y, pI, pA, fitMethod)
     fitParams = Float64[]
     append!(fitParams, pI)
     append!(fitParams, pA)
-    append!(fitParams, ones(Float64, length(pI)))
+    push!(fitParams, 1.0)
+    #append!(fitParams, ones(Float64, length(pI)))
     #push!(fitParams, median(y))
 
     xmin = 100
@@ -861,9 +950,9 @@ function peakFit(y, pI, pA, fitMethod)
                     fitParams)
 
     for i=1:nPeaks
-      peakArea[i] = fit.param[i+nPeaks] * abs(fit.param[i+2*nPeaks]) * sqrt(pi)
       peakIndex[i] = fit.param[i]
-      peakWidth[i] = fit.param[i+2*nPeaks]
+      peakArea[i] = fit.param[i+nPeaks] * abs(fit.param[end]) * sqrt(pi)
+      peakWidth[i] = fit.param[end]
     end
 
     # transform fitted parameter again
