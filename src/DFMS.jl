@@ -778,20 +778,28 @@ function singleGauss(x, p)
   # x = bins
   # p = fitting parameters
   # B = baseline height
-  w0 = 4.0
-  dw = 1.25
+  #w0 = 4.0
+  #dw = 1.25
 
   nPeaks = round(Int, (length(p)-1) / 3)
   B = 0.1
   #B = p[end]
   yFit = zeros(Float64, length(x))
   for i=1:nPeaks
-    x0 = p[i]
     A = p[i+nPeaks]
+
+    #########################################
+    # limit the fitting parameters
+    x0 = p[i]
+    th_x = tanh((x0-pI_0[i])/dx)
+    x0_th = pI_0[i] + th_x * dx
+
     w = p[i+2*nPeaks]
     th = tanh((w-w0)/dw)
     w_th = w0 + th * dw
-    yFit += A * exp(-(x-x0).^2 / w_th^2)
+    ##########################################
+
+    yFit += A * exp(-(x-x0_th).^2 / w_th^2)
   end
   yFit += B
   return yFit
@@ -806,6 +814,18 @@ function baseline_model(x, p)
 end
 
 function peakFit(y, pI, pA, fitMethod)
+  # global variables needed to artificially limit the
+  # search space for the fitting routine by a tanh
+  # transformation.
+  # w0 is the base value for the width (sigma) of the
+  # peaks, the fit routine can vary them by +/- dw.
+  # pI_0 and dx consider the position of the peak
+  # centroid.
+  global w0 = 4.0
+  global dw = 1.50
+  global pI_0 = Float64[value for value in pI]
+  global dx = 1.25
+
   nPeaks = length(pI)
   peakArea = zeros(Float64, nPeaks)
   peakIndex = Float64[value for value in pI]
@@ -846,10 +866,12 @@ function peakFit(y, pI, pA, fitMethod)
       peakWidth[i] = fit.param[i+2*nPeaks]
     end
 
-    w0 = 4.0
-    dw = 1.25
+    # transform fitted parameter again
     th = tanh((peakWidth-w0)/dw)
     peakWidth = w0 + th * dw
+
+    th_x = tanh((peakIndex-pI_0)/dx)
+    peakIndex = pI_0 + th_x * dx
 
     return singleGauss(x, fit.param), peakArea, peakIndex, peakWidth
   end
