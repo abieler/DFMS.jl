@@ -920,8 +920,8 @@ function peakFit(y, pI, pA, fitMethod)
   peakWidth = zeros(Float64, nPeaks)
 
   if fitMethod == "sum"
-    peakArea = sumPixels(y,[peakIndex])
-    return y, peakArea, pI[iPeak], 0.0
+    sum_pixels!(y,peakIndex, peakArea)
+    return y, peakArea, peakIndex, zeros(Float64, nPeaks)
 
   elseif fitMethod == "singleGauss"
     # use single gauss to fit peak shape
@@ -967,30 +967,8 @@ function peakFit(y, pI, pA, fitMethod)
 end
 
 function peakFit(y, pI, pA, fitMethod, iPeak)
-  nPeaks = length(pI)
-  peakArea = 0.0
-  peakIndex = pI[iPeak]
-  peakWidth = 0.0
-
-  if fitMethod == "sum"
-    peakArea = sumPixels(y,[peakIndex])
-    return y, peakArea, pI[iPeak], 0.0
-
-  elseif fitMethod == "singleGauss"
-    # use single gauss to fit peak shape
-    fitParams = Float64[]
-    append!(fitParams, pI)
-    append!(fitParams, pA)
-    append!(fitParams, ones(Float64, length(pI)))
-    push!(fitParams, median(y))
-    x = collect(1:512)
-    fit = curve_fit(singleGauss, x[20:500], y[20:500], fitParams)
-    #fit = curve_fit(singleGauss, x[LHS:RHS], y[LHS:RHS], fitParams)
-    peakArea = fit.param[iPeak+nPeaks] * abs(fit.param[iPeak+2*nPeaks]) * sqrt(pi)
-    peakIndex = fit.param[iPeak]
-    peakWidth = fit.param[iPeak+2*nPeaks]
-    return singleGauss(x, fit.param), peakArea, peakIndex, peakWidth
-  end
+  yFit, peakArea, peakIndex, peakWidth = peakFit(y, pI, pA, fitMethod)
+  return yFit, peakArea, peakIndex, peakWidth
 end
 
 function polyFit(y, baseline_model)
@@ -1011,19 +989,13 @@ function polyFit(y, baseline_model)
   return baseline_model(collect(fullRange), fit.param)
 end
 
-function sumPixels(y, pI)
-  lhs = 238
-  rhs = 285
-  if length(pI) > 1
-    lhs = minimum(pI)-20
-    rhs = maximum(pI)+20
-  elseif length(pI) == 1
-    lhs = pI[1] - 20
-    rhs = pI[1] + 20
-  else
-    return 0.0
+function sum_pixels!(y, peakIndices, peakAreas)
+  nPeaks = length(peakIndices)
+  for i =1:nPeaks
+    lhs = round(Int, peakIndices[i] - 20)
+    rhs = round(Int, peakIndices[i] + 20)
+    peakAreas[i] = sum(y[lhs:rhs])
   end
-   totalArea = sum(y[lhs:rhs])
 end
 
 function findPeaks(y, NN=3, yMin=0.01, pkLHS=180, pkRHS=380)
