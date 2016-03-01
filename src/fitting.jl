@@ -121,7 +121,7 @@ function peakFit(y, pI, pA, fitMethod)
     return singleGauss(x, fit.param), peakArea, peakIndex, peakWidth
   end
 end
-
+#=
 function peakFit(y, pI, pA, fitMethod, iPeak)
   nPeaks = length(pI)
   peakArea = 0.0
@@ -148,6 +148,7 @@ function peakFit(y, pI, pA, fitMethod, iPeak)
     return singleGauss(x, fit.param), peakArea, peakIndex, peakWidth
   end
 end
+=#
 
 function polyFit(y, baseline_model)
   # select only subset of the 512 data bins for fitting
